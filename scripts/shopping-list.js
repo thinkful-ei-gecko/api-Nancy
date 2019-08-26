@@ -1,8 +1,19 @@
 'use strict';
-/* global store, $ */
+/* global store, api $ */
 
 // eslint-disable-next-line no-unused-vars
 const shoppingList = (function(){
+
+
+  function generateError(message) {
+    return `
+      <section class="error-content">
+        <button id="cancel-error">X</button>
+        <p>${message}</p>
+      </section>
+    `;
+  }
+
 
   function generateItemElement(item) {
     const checkedClass = item.checked ? 'shopping-item__checked' : '';
@@ -19,19 +30,19 @@ const shoppingList = (function(){
   
     return `
       <li class="js-item-element" data-item-id="${item.id}">
-        ${itemTitle}
-        <div class="shopping-item-controls">
-          <button class="shopping-item-edit js-item-edit" ${editBtnStatus}>
-            <span class="button-label">edit</span>
-          </button>
-          <button class="shopping-item-toggle js-item-toggle">
-            <span class="button-label">check</span>
-          </button>
-          <button class="shopping-item-delete js-item-delete">
-            <span class="button-label">delete</span>
-          </button>
-        </div>
-      </li>`;
+      ${itemTitle}
+      <div class="shopping-item-controls">
+        <button class="shopping-item-edit js-item-edit" ${editBtnStatus}>
+          <span class="button-label">edit</span>
+        </button>
+        <button class="shopping-item-toggle js-item-toggle">
+          <span class="button-label">check</span>
+        </button>
+        <button class="shopping-item-delete js-item-delete">
+          <span class="button-label">delete</span>
+        </button>
+      </div>
+    </li>`;
   }
   
   
@@ -40,8 +51,18 @@ const shoppingList = (function(){
     return items.join('');
   }
   
-  
+  function renderError() {
+    if (store.error) {
+      const el = generateError(store.error);
+      $('.error-container').html(el);
+    } else {
+      $('.error-container').empty();
+    }
+  }
+
+
   function render() {
+    renderError();
     // Filter item list if store prop is true by item.checked === false
     let items = [ ...store.items ];
     if (store.hideCheckedItems) {
@@ -67,8 +88,13 @@ const shoppingList = (function(){
       event.preventDefault();
       const newItemName = $('.js-shopping-list-entry').val();
       $('.js-shopping-list-entry').val('');
-      store.addItem(newItemName);
-      render();
+      api.createItem(newItemName)
+        //.then(res => res.json())
+        .then((newItem) => {
+          store.addItem(newItem);
+          render();
+        });
+      
     });
   }
   
@@ -81,8 +107,17 @@ const shoppingList = (function(){
   function handleItemCheckClicked() {
     $('.js-shopping-list').on('click', '.js-item-toggle', event => {
       const id = getItemIdFromElement(event.currentTarget);
-      store.findAndToggleChecked(id);
-      render();
+      const item = store.findById(id);
+      api.updateItem(id, {checked: !item.checked})
+        .then(() => {
+          store.findAndUpdate(id, {checked: !item.checked});
+          render();
+        })
+        .catch((err) => {
+          console.log(err);
+          store.setError(err.message);
+          renderError();
+        });
     });
   }
   
@@ -91,21 +126,40 @@ const shoppingList = (function(){
     $('.js-shopping-list').on('click', '.js-item-delete', event => {
       // get the index of the item in store.items
       const id = getItemIdFromElement(event.currentTarget);
-      // delete the item
-      store.findAndDelete(id);
+      api.deleteItem(id)
+        .then(() => {
+          store.findAndDelete(id);
+          render();
+        })
+        .catch((err) => {
+          console.log(err);
+          store.setError(err.message);
+          renderError();
+        });
+      
       // render the updated shopping list
-      render();
     });
   }
   
   function handleEditShoppingItemSubmit() {
     $('.js-shopping-list').on('submit', '.js-edit-item', event => {
       event.preventDefault();
+      console.log($('.js-edit-item'));
       const id = getItemIdFromElement(event.currentTarget);
-      const itemName = $(event.currentTarget).find('.shopping-item').val();
-      store.findAndUpdateName(id, itemName);
-      store.setItemIsEditing(id, false);
-      render();
+      const newName = $(event.currentTarget).find('.shopping-item').val();
+
+      api.updateItem(id, {name: newName})
+        //.then(res => res.json())
+        .then(() => {
+          store.findAndUpdate(id, {name: newName});
+          store.setItemIsEditing(id, false);
+          render();
+        })
+        .catch((err) => {
+          console.log(err);
+          store.setError(err.message);
+          renderError();
+        });
     });
   }
   
@@ -132,6 +186,13 @@ const shoppingList = (function(){
     });
   }
   
+  function handleCloseError() {
+    $('.error-container').on('click', '#cancel-error', () => {
+      store.setError(null);
+      renderError();
+    });
+  }
+
   function bindEventListeners() {
     handleNewItemSubmit();
     handleItemCheckClicked();
@@ -140,6 +201,7 @@ const shoppingList = (function(){
     handleToggleFilterClick();
     handleShoppingListSearch();
     handleItemStartEditing();
+    handleCloseError();
   }
 
   // This object contains the only exposed methods from this module:
